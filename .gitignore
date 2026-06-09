@@ -1,0 +1,7 @@
+bin/
+obj/
+output/
+*.user
+*.suo
+.vs/
+Sample_OEM_List.xlsx
