@@ -20,7 +20,8 @@ public sealed class ExcelService : IExcelService
         var list = new List<BrandOemRow>();
         try
         {
-            using var book = new XLWorkbook(filePath);
+            using var stream = new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite);
+            using var book = new XLWorkbook(stream);
             var sheet = book.Worksheets.Worksheet(1);
             var used = sheet.RangeUsed();
             if (used == null) return Task.FromResult<IReadOnlyList<BrandOemRow>>(list);

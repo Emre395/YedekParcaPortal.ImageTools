@@ -1,40 +1,46 @@
 # YedekParcaPortal.ImageTools
 
-Bağımsız konsol aracı: Excel'deki OEM kodları için Google Görseller'de arama yapar, bulunan görselleri **ham (işlenmemiş)** olarak diske kaydeder.
+Kademeli (Cascade) SerpApi görsel arama motoru: Excel'deki OEM kodları için otomatik arama, 600×600+ filtre ve ham kayıt.
 
-YedekParcaPortal web projesi veya ImageCore ile bağlantısı yoktur. Boyutlandırma ve filigran web sitesinde (`ImageCore`) uygulanır.
+## Mimari
 
-## Gereksinimler
+```
+Program
+  └── OemBatchRunner          (Excel döngüsü, kota durdurma)
+        └── OemRowProcessor   (Kademe 1 → indir → Kademe 2 → indir)
+              ├── CascadeSearchExecutor
+              ├── RawImageSaver
+              └── OutputPathGuard
+```
 
-- .NET 8
-- SerpApi API anahtarı (`SERPAPI_KEY` ortam değişkeni; tanımlı değilse kod içindeki varsayılan kullanılır)
+## Kademeli arama
+
+| Kademe | Sorgu | Filtreler |
+|--------|-------|-----------|
+| 1 | `{Brand} {OEM} -watermark -site:shutterstock.com ...` | `tbs=isz:l` (büyük görsel) |
+| 2 | `{OEM}` (yalnızca) | `tbs=isz:l` |
+
+Kademe 2 yalnızca Kademe 1 sonuç döndürmezse veya indirme başarısız olursa çalışır.
+
+## Kurallar
+
+- Minimum boyut: **600×600 px** (bilinen boyutlarda)
+- Kayıt: `output/{OEM}.{uzantı}` ham byte
+- Mevcut dosya varsa satır atlanır
+- SerpApi kota (HTTP 402 / json error): program durur, son OEM konsola yazılır
 
 ## Çalıştırma
 
 ```powershell
-cd C:\Users\Administrator\source\repos\YedekParcaPortal.ImageTools
 dotnet run
 ```
 
-İsteğe bağlı çıktı klasörü:
-
 ```powershell
-$env:IMAGE_TOOLS_OUTPUT = "D:\indirilen_gorseller"
+$env:IMAGE_TOOLS_OUTPUT = "D:\gorseller"
+$env:SERPAPI_KEY = "anahtariniz"   # isteğe bağlı; yoksa kod içi varsayılan
 dotnet run
 ```
 
 ## Girdi
 
-Proje kökünde `Sample_OEM_List.xlsx` — `Brand` ve `OEM_Code` sütunları. Dosya yoksa ilk çalıştırmada boş şablon oluşturulur.
-
-## Çıktı
-
-- Klasör: `output/` (veya `IMAGE_TOOLS_OUTPUT`)
-- Dosya adı: `{OEM}.{jpg|png|webp|...}` — kaynak formatı korunur
-- Aynı OEM için dosya zaten varsa atlanır
-
-## Akış
-
-1. Excel'den OEM kodları okunur
-2. SerpApi ile `"{OEM} spare part"` aranır
-3. İlk indirilebilir görsel ham byte olarak kaydedilir
+`Sample_OEM_List.xlsx` — `Brand` ve `OEM_Code` sütunları.

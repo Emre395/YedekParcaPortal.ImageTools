@@ -7,6 +7,8 @@ namespace YedekParcaPortal.ImageTools;
 /// </summary>
 public static class PathConfig
 {
+    private const string ProjectFileName = "YedekParcaPortal.ImageTools.csproj";
+
     /// <summary>
     /// İndirilen ham görsellerin kaydedileceği klasör.
     /// </summary>
@@ -20,12 +22,19 @@ public static class PathConfig
     }
 
     /// <summary>
-    /// Proje kökü (ImageTools .csproj klasörü). bin/Debug/net8.0'dan iki üst dizin.
+    /// .csproj dosyasının bulunduğu klasör (dotnet run ile bin/ altına düşmez).
     /// </summary>
     public static string GetProjectRoot()
     {
-        var baseDir = AppContext.BaseDirectory;
-        return Path.GetFullPath(Path.Combine(baseDir, "..", ".."));
+        var dir = new DirectoryInfo(AppContext.BaseDirectory);
+        while (dir != null)
+        {
+            if (File.Exists(Path.Combine(dir.FullName, ProjectFileName)))
+                return dir.FullName;
+            dir = dir.Parent;
+        }
+
+        return Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", ".."));
     }
 
     public const string SampleExcelFileName = "Sample_OEM_List.xlsx";
