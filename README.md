@@ -20,11 +20,12 @@ Program
 | 1 | `{Brand} {OEM} -watermark -site:shutterstock.com ...` | `tbs=isz:l` (büyük görsel) |
 | 2 | `{OEM}` (yalnızca) | `tbs=isz:l` |
 
-Kademe 2 yalnızca Kademe 1 sonuç döndürmezse veya indirme başarısız olursa çalışır.
+Kademe 2 yalnızca Kademe 1 **0 sonuç** döndürürse veya tüm URL'ler **404/bağlantı hatası** verirse çalışır (boyut yetersizliğinde kota harcanmaz).
 
 ## Kurallar
 
-- Minimum boyut: **600×600 px** (bilinen boyutlarda)
+- Minimum boyut: **600×600 px** (SerpApi metadata + indirme sonrası Image.Identify)
+- Paralellik: **3 satır** eşzamanlı (`SemaphoreSlim`)
 - Kayıt: `output/{OEM}.{uzantı}` ham byte
 - Mevcut dosya varsa satır atlanır
 - SerpApi kota (HTTP 402 / json error): program durur, son OEM konsola yazılır

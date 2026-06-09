@@ -1,20 +1,27 @@
+using YedekParcaPortal.ImageTools.Configuration;
 using YedekParcaPortal.ImageTools.Models;
 using YedekParcaPortal.ImageTools.Search;
 
 namespace YedekParcaPortal.ImageTools.Processing;
 
 /// <summary>
-/// Excel satırlarını sırayla işler; SerpApi kota hatasında güvenle durur.
+/// Excel satırlarını kontrollü paralellik ile işler; SerpApi kota hatasında güvenle durur.
 /// </summary>
-public sealed class OemBatchRunner
+public sealed class OemBatchRunner : IDisposable
 {
     private readonly IOemRowProcessor _processor;
     private readonly Action<string> _log;
+    private readonly object _logLock = new();
+    private readonly SemaphoreSlim _parallelLimit;
 
-    public OemBatchRunner(IOemRowProcessor processor, Action<string> log)
+    public OemBatchRunner(
+        IOemRowProcessor processor,
+        Action<string> log,
+        int maxParallel = ImageToolsOptions.MaxParallelRows)
     {
         _processor = processor;
         _log = log;
+        _parallelLimit = new SemaphoreSlim(maxParallel, maxParallel);
     }
 
     public async Task<BatchRunSummary> RunAsync(
@@ -22,50 +29,101 @@ public sealed class OemBatchRunner
         CancellationToken ct = default)
     {
         var summary = new BatchRunSummary();
-        string? lastAttemptedOem = null;
+        using var stopCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var workCt = stopCts.Token;
 
-        foreach (var row in rows)
+        var validRows = rows
+            .Where(r => !string.IsNullOrWhiteSpace(r.OemCode))
+            .ToList();
+
+        var tasks = validRows.Select(row => ProcessRowAsync(row, summary, stopCts, workCt));
+        await Task.WhenAll(tasks).ConfigureAwait(false);
+
+        return summary;
+    }
+
+    public void Dispose() => _parallelLimit.Dispose();
+
+    private async Task ProcessRowAsync(
+        BrandOemRow row,
+        BatchRunSummary summary,
+        CancellationTokenSource stopCts,
+        CancellationToken ct)
+    {
+        await _parallelLimit.WaitAsync(ct).ConfigureAwait(false);
+        try
         {
-            ct.ThrowIfCancellationRequested();
-            var oem = (row.OemCode ?? "").Trim();
-            if (string.IsNullOrEmpty(oem)) continue;
+            if (summary.QuotaExhausted)
+                return;
 
-            lastAttemptedOem = oem;
+            var oem = row.OemCode.Trim();
+            summary.SetLastAttemptedOem(oem);
 
             try
             {
                 var result = await _processor.ProcessAsync(row, ct).ConfigureAwait(false);
                 summary.Register(result);
             }
-            catch (SerpApiQuotaException ex)
+            catch (SerpApiQuotaException)
             {
-                var oemLabel = ex.LastProcessedOem ?? lastAttemptedOem ?? oem;
-                _log($"\n[STOP] SerpApi kotası tükendi. Excel'de [{oemLabel}] değerinde kalındı.");
-                summary.QuotaExhausted = true;
-                summary.LastOemOnQuotaStop = oemLabel;
-                break;
+                summary.MarkQuotaExhausted(oem);
+                SafeLog($"\n[STOP] SerpApi kotası tükendi. Excel'de [{oem}] değerinde kalındı.");
+                stopCts.Cancel();
             }
         }
+        finally
+        {
+            _parallelLimit.Release();
+        }
+    }
 
-        return summary;
+    private void SafeLog(string message)
+    {
+        lock (_logLock)
+            _log(message);
     }
 }
 
 public sealed class BatchRunSummary
 {
-    public int Saved { get; private set; }
-    public int Skipped { get; private set; }
-    public int NotFound { get; private set; }
-    public bool QuotaExhausted { get; set; }
-    public string? LastOemOnQuotaStop { get; set; }
+    private int _saved;
+    private int _skipped;
+    private int _notFound;
+    private string? _lastAttemptedOem;
+
+    public bool QuotaExhausted { get; private set; }
+    public string? LastOemOnQuotaStop { get; private set; }
+
+    public int Saved => _saved;
+    public int Skipped => _skipped;
+    public int NotFound => _notFound;
+
+    public void SetLastAttemptedOem(string oem) =>
+        Interlocked.Exchange(ref _lastAttemptedOem, oem);
+
+    public void MarkQuotaExhausted(string oem)
+    {
+        if (Interlocked.CompareExchange(ref _quotaFlag, 1, 0) != 0)
+            return;
+        QuotaExhausted = true;
+        LastOemOnQuotaStop = oem;
+    }
+
+    private int _quotaFlag;
 
     public void Register(OemProcessResult result)
     {
         switch (result.Status)
         {
-            case OemProcessStatus.Saved: Saved++; break;
-            case OemProcessStatus.SkippedAlreadyExists: Skipped++; break;
-            case OemProcessStatus.NotFound: NotFound++; break;
+            case OemProcessStatus.Saved:
+                Interlocked.Increment(ref _saved);
+                break;
+            case OemProcessStatus.SkippedAlreadyExists:
+                Interlocked.Increment(ref _skipped);
+                break;
+            case OemProcessStatus.NotFound:
+                Interlocked.Increment(ref _notFound);
+                break;
         }
     }
 }

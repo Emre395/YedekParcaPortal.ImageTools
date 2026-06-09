@@ -13,7 +13,8 @@ internal static class Program
     {
         Console.OutputEncoding = System.Text.Encoding.UTF8;
         var sw = Stopwatch.StartNew();
-        var log = new Action<string>(Console.WriteLine);
+        var logLock = new object();
+        var log = new Action<string>(m => { lock (logLock) Console.WriteLine(m); });
 
         Console.WriteLine("════════════════════════════════════════════════════════════");
         log("  ImageTools – Kademeli (Cascade) Görsel Arama Motoru");
@@ -27,8 +28,9 @@ internal static class Program
 
         log($"Çıktı klasörü: {outputDir}");
         log($"Excel dosyası: {excelPath}");
-        log($"Minimum boyut: {ImageToolsOptions.MinImageWidthPx}x{ImageToolsOptions.MinImageHeightPx} px");
-        log("Arama: SerpApi — Kademe 1 (Marka+OEM) → Kademe 2 (Yalnızca OEM)");
+        log($"Minimum boyut: {ImageToolsOptions.MinImageWidthPx}x{ImageToolsOptions.MinImageHeightPx} px (metadata + Image.Identify)");
+        log($"Paralellik : {ImageToolsOptions.MaxParallelRows} satır eşzamanlı");
+        log("Arama: SerpApi — Kademe 2 yalnızca 0 sonuç veya tüm URL transport hatası");
 
         if (!File.Exists(excelPath))
         {
@@ -47,12 +49,14 @@ internal static class Program
         }
 
         using var searchService = new SerpApiGoogleImageSearchService();
-        using var rawSaver = new RawImageSaver(new MinimumDimensionFilter());
+        using var rawSaver = new RawImageSaver(
+            new MinimumDimensionFilter(),
+            new ImageSharpDimensionInspector());
 
         var cascadeSearch = new CascadeSearchExecutor(searchService, new CascadeQueryBuilder());
         var pathGuard = new OutputPathGuard();
         var rowProcessor = new OemRowProcessor(cascadeSearch, rawSaver, pathGuard, outputDir, log);
-        var batchRunner = new OemBatchRunner(rowProcessor, log);
+        using var batchRunner = new OemBatchRunner(rowProcessor, log);
 
         log("\n>>> ÜRÜN GÖRSELLERİ İNDİRİLİYOR (ham, işlenmemiş)...");
         var summary = await batchRunner.RunAsync(oemRows);

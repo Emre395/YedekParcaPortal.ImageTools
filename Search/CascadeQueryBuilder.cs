@@ -4,8 +4,8 @@ using YedekParcaPortal.ImageTools.Models;
 namespace YedekParcaPortal.ImageTools.Search;
 
 /// <summary>
-/// Kademe 1: Marka + OEM + büyük görsel filtresi + stok sitesi dışlama.
-/// Kademe 2: Yalnızca OEM (temiz sorgu) + büyük görsel filtresi.
+/// Kademe 1: Marka + OEM + büyük görsel + watermark/stok dışlama.
+/// Kademe 2: OEM + stok sitesi dışlama + büyük görsel.
 /// </summary>
 public sealed class CascadeQueryBuilder : ICascadeQueryBuilder
 {
@@ -18,7 +18,7 @@ public sealed class CascadeQueryBuilder : ICascadeQueryBuilder
         if (!string.IsNullOrEmpty(brand))
             terms.Add(brand);
         terms.Add(oem);
-        terms.Add(ImageToolsOptions.StockSiteExclusions);
+        terms.Add(ImageToolsOptions.StockSiteExclusionsTier1);
 
         return new ImageSearchRequest(
             Query: string.Join(" ", terms),
@@ -29,8 +29,10 @@ public sealed class CascadeQueryBuilder : ICascadeQueryBuilder
     public ImageSearchRequest BuildTier2(BrandOemRow row)
     {
         var oem = (row.OemCode ?? "").Trim();
+        var query = $"{oem} {ImageToolsOptions.StockSiteExclusionsTier2}";
+
         return new ImageSearchRequest(
-            Query: oem,
+            Query: query.Trim(),
             UseLargeImageFilter: true,
             TierLabel: "Kademe 2 (Yalnızca OEM)");
     }
